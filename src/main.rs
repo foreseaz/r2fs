@@ -5,37 +5,57 @@ use std::{env, process};
 use dotenv::dotenv;
 
 struct R2FS {
-    cf_account_id: String,
-    cf_api_token: String,
+    r2_client: R2Client,
 }
 
 impl Filesystem for R2FS {
-    // Implement the FUSE operations here
 }
 
-fn get_r2(client: &reqwest::blocking::Client, fs: &R2FS) -> Result<Vec<String>, Box<dyn Error>> {
-    let endpoint = format!("https://api.cloudflare.com/client/v4/accounts/{}/r2/buckets", fs.cf_account_id);
-    let response = client
-        .get(endpoint)
-        .header("Authorization", format!("Bearer {}", fs.cf_api_token))
-        .send()?;
+struct R2Client {
+    cf_account_id: String,
+    r2_access_key_id: String,
+    r2_secret_access_key: String,
+    client: reqwest::blocking::Client,
+}
 
-    let json: Value = response.json()?;
-    let namespaces = json["result"]["buckets"]
-        .as_array()
-        .ok_or("Unexpected JSON format")?;
-
-    let mut buckets = Vec::new();
-    for namespace in namespaces {
-        let name = namespace["name"].as_str().unwrap_or_default();
-        if !name.is_empty() {
-            buckets.push(name.to_owned());
+impl R2Client {
+    fn new(cf_account_id: String, r2_access_key_id: String, r2_secret_access_key: String) -> Self {
+        let client = reqwest::blocking::Client::new();
+        Self {
+            cf_account_id,
+            r2_access_key_id,
+            r2_secret_access_key,
+            client,
         }
     }
 
-    println!("[INFO] Received buckets: {:#?}", buckets);
+    fn list_buckets(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        let endpoint = format!("https://{}.r2.cloudflarestorage.com", self.cf_account_id);
+        let response = self.client
+            .get(endpoint)
+            .header("AccessKey", format!("{}", self.r2_access_key_id))
+            .header("SecretKey", format!("{}", self.r2_secret_access_key))
+            .send()?;
 
-    Ok(buckets)
+        println!("{:?}", response.text()?);
+
+        // let json: Value = response.json()?;
+        // let namespaces = json["result"]["buckets"]
+        //     .as_array()
+        //     .ok_or("Unexpected JSON format")?;
+
+        let mut buckets = Vec::new();
+        // for namespace in namespaces {
+        //     let name = namespace["name"].as_str().unwrap_or_default();
+        //     if !name.is_empty() {
+        //         buckets.push(name.to_owned());
+        //     }
+        // }
+
+        println!("[INFO] Received buckets: {:#?}", buckets);
+
+        Ok(buckets)
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -43,13 +63,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     dotenv().ok(); // load the .env file
     let cf_account_id = env::var("ACCOUNT_ID").unwrap();
-    let cf_api_token = env::var("CLOUDFLARE_API_TOKEN").unwrap();
+    let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").unwrap();
+    let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").unwrap();
 
     let fs = R2FS {
-        cf_account_id: cf_account_id.clone(),
-        cf_api_token: cf_api_token.clone(),
+        r2_client: R2Client::new(cf_account_id, r2_access_key_id, r2_secret_access_key)
     };
-    println!("FS: {}", fs.cf_account_id);
 
     // Get the mountpoint argument
     let mountpoint = match env::args_os().nth(1) {
@@ -61,8 +80,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     println!("Mount at: {:?}", mountpoint);
 
-    let client = reqwest::blocking::Client::new();
-    let res = get_r2(&client, &fs)?;
+    let res = fs.r2_client.list_buckets()?;
 
     // Set up the mount options
     let mut mount_options = Vec::new();
