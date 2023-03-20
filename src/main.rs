@@ -1,8 +1,9 @@
 use fuser::{Filesystem, MountOption};
-use serde_json::Value;
 use std::error::Error;
 use std::{env, process};
 use dotenv::dotenv;
+
+mod sig;
 
 struct R2FS {
     r2_client: R2Client,
@@ -13,8 +14,8 @@ impl Filesystem for R2FS {
 
 struct R2Client {
     cf_account_id: String,
-    r2_access_key_id: String,
-    r2_secret_access_key: String,
+    r2_access: String,
+    r2_secret: String,
     client: reqwest::blocking::Client,
 }
 
@@ -23,21 +24,27 @@ impl R2Client {
         let client = reqwest::blocking::Client::new();
         Self {
             cf_account_id,
-            r2_access_key_id,
-            r2_secret_access_key,
+            r2_access: r2_access_key_id,
+            r2_secret: r2_secret_access_key,
             client,
         }
     }
 
     fn list_buckets(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        let endpoint = format!("https://{}.r2.cloudflarestorage.com", self.cf_account_id);
-        let response = self.client
+        let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
+        let endpoint = format!("https://{}", host);
+
+        let signed_headers = sig::get_sig_headers(&host, &self.r2_access, &self.r2_secret);
+        println!("\n\nsigned_headers: {:?}", signed_headers);
+        let res = self.client
             .get(endpoint)
-            .header("AccessKey", format!("{}", self.r2_access_key_id))
-            .header("SecretKey", format!("{}", self.r2_secret_access_key))
+            .headers(signed_headers.to_owned())
+            .body("")
             .send()?;
 
-        println!("{:?}", response.text()?);
+        println!("Status: {}", res.status());
+        let body = res.text()?;
+        println!("Body:\n\n{}", body);
 
         // let json: Value = response.json()?;
         // let namespaces = json["result"]["buckets"]
