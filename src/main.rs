@@ -1,55 +1,16 @@
 use fuser::{Filesystem, MountOption};
-use parsers::list_buckets_parser::ListAllMyBucketsResult;
+use r2client::R2Client;
 use std::error::Error;
 use std::{env, process};
 use dotenv::dotenv;
 
-mod sig;
-mod parsers;
+mod r2client;
 
 struct R2FS {
     r2_client: R2Client,
 }
 
 impl Filesystem for R2FS {
-}
-
-struct R2Client {
-    cf_account_id: String,
-    r2_access: String,
-    r2_secret: String,
-    client: reqwest::blocking::Client,
-}
-
-impl R2Client {
-    fn new(cf_account_id: String, r2_access_key_id: String, r2_secret_access_key: String) -> Self {
-        let client = reqwest::blocking::Client::new();
-        Self {
-            cf_account_id,
-            r2_access: r2_access_key_id,
-            r2_secret: r2_secret_access_key,
-            client,
-        }
-    }
-
-    fn list_buckets(&self) -> Result<ListAllMyBucketsResult, Box<dyn Error>> {
-        let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
-        let endpoint = format!("https://{}", host);
-
-        let signed_headers = sig::get_sig_headers(&host, &self.r2_access, &self.r2_secret);
-        println!("\n\nsigned_headers: {:?}", signed_headers);
-        let res = self.client
-            .get(endpoint)
-            .headers(signed_headers.to_owned())
-            .body("")
-            .send()?;
-
-        let body = res.text()?;
-        println!("Body: {:?}", body);
-
-        let result = parsers::list_buckets_parser::parse(body);
-        Ok(result)
-    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
