@@ -1,9 +1,11 @@
 use fuser::{Filesystem, MountOption};
+use parsers::list_buckets_parser::ListAllMyBucketsResult;
 use std::error::Error;
 use std::{env, process};
 use dotenv::dotenv;
 
 mod sig;
+mod parsers;
 
 struct R2FS {
     r2_client: R2Client,
@@ -30,7 +32,7 @@ impl R2Client {
         }
     }
 
-    fn list_buckets(&self) -> Result<Vec<String>, Box<dyn Error>> {
+    fn list_buckets(&self) -> Result<ListAllMyBucketsResult, Box<dyn Error>> {
         let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
         let endpoint = format!("https://{}", host);
 
@@ -42,26 +44,11 @@ impl R2Client {
             .body("")
             .send()?;
 
-        println!("Status: {}", res.status());
         let body = res.text()?;
-        println!("Body:\n\n{}", body);
+        println!("Body: {:?}", body);
 
-        // let json: Value = response.json()?;
-        // let namespaces = json["result"]["buckets"]
-        //     .as_array()
-        //     .ok_or("Unexpected JSON format")?;
-
-        let mut buckets = Vec::new();
-        // for namespace in namespaces {
-        //     let name = namespace["name"].as_str().unwrap_or_default();
-        //     if !name.is_empty() {
-        //         buckets.push(name.to_owned());
-        //     }
-        // }
-
-        println!("[INFO] Received buckets: {:#?}", buckets);
-
-        Ok(buckets)
+        let result = parsers::list_buckets_parser::parse(body);
+        Ok(result)
     }
 }
 
@@ -88,6 +75,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Mount at: {:?}", mountpoint);
 
     let res = fs.r2_client.list_buckets()?;
+    println!("\t\tlist_buckets_parser result{:#?}", res);
 
     // Set up the mount options
     let mut mount_options = Vec::new();
