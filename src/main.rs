@@ -35,16 +35,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     println!("Mount at: {:?}", mountpoint);
 
-    let res = fs.r2_client.list_buckets()?;
-    println!("\t\tlist_buckets_parser result{:#?}", res);
+    let list_buckets_res = fs.r2_client.list_buckets()?;
+    println!("\t\tlist_buckets_parser result{:#?}", list_buckets_res);
 
     // Set up the mount options
     let mut mount_options = Vec::new();
-    mount_options.push(MountOption::RO);
-    mount_options.push(MountOption::FSName("r2".to_string()));
+    let fs_name = list_buckets_res.buckets.bucket[0].name.clone();
+    mount_options.push(MountOption::RW);
+    mount_options.push(MountOption::FSName(fs_name));
+    println!("[DEBUG] will mount at {:#?}", fs_name);
 
     // Mount the file system
-    // fuser::mount2(R2FS, &mountpoint, &mount_options).unwrap();
+    fuser::mount2(fs, &mountpoint, &mount_options).unwrap();
 
     Ok(())
-}
+m
