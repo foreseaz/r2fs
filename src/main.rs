@@ -41,12 +41,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Set up the mount options
     let mut mount_options = Vec::new();
     let fs_name = list_buckets_res.buckets.bucket[0].name.clone();
+    let mount_path = mountpoint.clone().into_string().unwrap() + "/" + &fs_name;
+
     mount_options.push(MountOption::RW);
     mount_options.push(MountOption::FSName(fs_name));
-    println!("[DEBUG] will mount at {:#?}", fs_name);
+
+    println!("[DEBUG] will mount at {:?}", mount_path);
 
     // Mount the file system
-    fuser::mount2(fs, &mountpoint, &mount_options).unwrap();
+    fuser::mount2(fs, &mount_path, &mount_options).unwrap();
 
     Ok(())
-m
+}
