@@ -1,5 +1,5 @@
 mod sig;
-mod parsers;
+pub(crate) mod parsers;
 
 use std::error::Error;
 use parsers::list_buckets_parser::ListAllMyBucketsResult;
@@ -42,7 +42,7 @@ impl R2Client {
         Ok(result)
     }
 
-    pub fn list_bucket_objects(&self, bucket_name: String) -> Result<ListBucketObjectsResult, Box<dyn Error>> {
+    pub fn list_bucket_objects(&self, bucket_name: &str) -> Result<ListBucketObjectsResult, Box<dyn Error>> {
         let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
         let endpoint = format!("https://{}/{}?list-type=2", host, bucket_name); // using ListObjectV2
         println!("will request for endpoint: {:?}", endpoint);

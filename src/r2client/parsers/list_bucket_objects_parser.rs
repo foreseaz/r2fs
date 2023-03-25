@@ -6,30 +6,30 @@ use std::io::Cursor;
 #[serde(rename = "ListBucketResult")]
 pub struct ListBucketObjectsResult {
     #[serde(rename = "Name")]
-    name: String, // bucket naem
+    pub name: String, // bucket naem
     #[serde(rename = "Contents")]
-    contents: Vec<Content>,
+    pub contents: Vec<Content>,
     #[serde(rename = "IsTruncated")]
-    is_truncated: bool,
+    pub is_truncated: bool,
     #[serde(rename = "MaxKeys")]
-    max_keys: i32,
+    pub max_keys: i32,
     #[serde(rename = "KeyCount")]
-    key_count: i32,
+    pub key_count: i32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "Contents")]
 pub struct Content { // single object, all are files
     #[serde(rename = "Key")]
-    key: String,
+    pub key: String,
     #[serde(rename = "Size")]
-    size: i64,
+    pub size: i64,
     #[serde(rename = "LastModified")]
-    last_modified: String,
+    pub last_modified: String,
     #[serde(rename = "ETag")]
-    etag: String,
+    pub etag: String,
     #[serde(rename = "StorageClass")]
-    storage_class: String,
+    pub storage_class: String,
 }
 
 pub fn parse(input: String) -> ListBucketObjectsResult {

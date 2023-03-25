@@ -105,11 +105,20 @@ impl Filesystem for R2FS {
             return;
         }
 
-        let entries = vec![
-            (1, FileType::Directory, "."),
-            (1, FileType::Directory, ".."),
-            (2, FileType::RegularFile, "hello.txt"),
-        ];
+        let mut entries = Vec::new();
+
+        // Add the current and parent directory entries
+        entries.push((1, FileType::Directory, "."));
+        entries.push((1, FileType::Directory, ".."));
+
+        // Retrieve the list of objects in the bucket
+        let objects = self.r2_client.list_bucket_objects(&self.bucket).unwrap();
+
+        // Add the objects as directory entries
+        for (i, obj) in objects.contents.iter().enumerate().skip(offset as usize) {
+            // need handle the directory
+            entries.push((2, FileType::RegularFile, &obj.key));
+        }
 
         for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
             // i + 1 means the index of the next entry
@@ -121,6 +130,15 @@ impl Filesystem for R2FS {
     }
 }
 
+fn unmount(mountpoint: &str) -> Result<(), String> {
+    let mnt_dir = std::ffi::CString::new(mountpoint).map_err(|_| "Invalid mountpoint")?;
+    let result = unsafe { libc::unmount(mnt_dir.as_ptr(), libc::MNT_FORCE) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(format!("Failed to unmount mountpoint {}: {}", mountpoint, std::io::Error::last_os_error()))
+    }
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Starting the R2FS...");
@@ -150,20 +168,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("\t\tlist_buckets_parser result{:#?}", fs.bucket);
 
     // List bucket objects test
-    let objects = fs.r2_client.list_bucket_objects(fs.bucket);
+    let objects = fs.r2_client.list_bucket_objects(&fs.bucket);
     println!("\t\tobjects result{:#?}", objects);
 
-    // // Set up the mount options
-    // let mut mount_options = Vec::new();
-    // let mount_path = mountpoint.clone().into_string().unwrap() + "/" + &bucket_name;
+    // Set up the mount options
+    let mut mount_options = Vec::new();
+    let mount_path = mountpoint.clone().into_string().unwrap() + "/" + &fs.bucket;
 
-    // mount_options.push(MountOption::RW);
-    // mount_options.push(MountOption::FSName(bucket_name));
+    mount_options.push(MountOption::RW);
+    mount_options.push(MountOption::FSName(fs.bucket.clone()));
 
-    // println!("[DEBUG] will mount at {:?}", mount_path);
+    println!("[DEBUG] will mount at {:?}", mount_path);
 
-    // // Mount the file system
-    // fuser::mount2(fs, &mount_path, &mount_options).unwrap();
+    // Unmount existing FUSE mount if necessary
+    if let Err(err) = unmount(&mount_path) {
+        eprintln!("Failed to unmount existing FUSE mount: {}", err);
+        return Ok(());
+    }
+
+    // Mount the file system
+    match fuser::mount2(fs, &mount_path, &mount_options) {
+        Ok(_) => println!("File system mounted successfully"),
+        Err(err) => eprintln!("Failed to mount file system: {}", err),
+    }
 
     Ok(())
 }
