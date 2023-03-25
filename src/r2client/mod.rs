@@ -3,6 +3,7 @@ mod parsers;
 
 use std::error::Error;
 use parsers::list_buckets_parser::ListAllMyBucketsResult;
+use parsers::list_bucket_objects_parser::ListBucketObjectsResult;
 
 pub struct R2Client {
     cf_account_id: String,
@@ -26,7 +27,7 @@ impl R2Client {
         let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
         let endpoint = format!("https://{}", host);
 
-        let signed_headers = sig::get_sig_headers(&host, &self.r2_access, &self.r2_secret);
+        let signed_headers = sig::get_sig_headers(&host, &endpoint, &self.r2_access, &self.r2_secret);
         println!("\n\nsigned_headers: {:?}", signed_headers);
         let res = self.client
             .get(endpoint)
@@ -38,6 +39,26 @@ impl R2Client {
         println!("Body: {:?}", body);
 
         let result = parsers::list_buckets_parser::parse(body);
+        Ok(result)
+    }
+
+    pub fn list_bucket_objects(&self, bucket_name: String) -> Result<ListBucketObjectsResult, Box<dyn Error>> {
+        let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
+        let endpoint = format!("https://{}/{}?list-type=2", host, bucket_name); // using ListObjectV2
+        println!("will request for endpoint: {:?}", endpoint);
+
+        let signed_headers = sig::get_sig_headers(&host, &endpoint, &self.r2_access, &self.r2_secret);
+        println!("\n\nsigned_headers: {:?}", signed_headers);
+        let res = self.client
+            .get(endpoint)
+            .headers(signed_headers.to_owned())
+            .body("")
+            .send()?;
+
+        let body = res.text()?;
+        println!("Body: {:?}", body);
+
+        let result = parsers::list_bucket_objects_parser::parse(body);
         Ok(result)
     }
 }

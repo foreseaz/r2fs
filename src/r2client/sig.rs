@@ -9,11 +9,11 @@ fn sha256_string(input: String) -> String {
 
 pub fn get_sig_headers(
     host: &str,
+    url: &str,
     r2_access: &str,
     r2_secret: &str,
 ) -> reqwest::header::HeaderMap {
     let datetime = chrono::Utc::now();
-    let url = format!("https://{}", host);
     let mut headers = reqwest::header::HeaderMap::new();
 
     headers.insert(

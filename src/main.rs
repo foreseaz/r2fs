@@ -144,20 +144,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Mount at: {:?}", mountpoint);
 
     let list_buckets_res = fs.r2_client.list_buckets()?;
-    println!("\t\tlist_buckets_parser result{:#?}", list_buckets_res);
+    let bucket_name = list_buckets_res.buckets.bucket[0].name.clone();
+    println!("\t\tlist_buckets_parser result{:#?}", bucket_name);
 
-    // Set up the mount options
-    let mut mount_options = Vec::new();
-    let fs_name = list_buckets_res.buckets.bucket[0].name.clone();
-    let mount_path = mountpoint.clone().into_string().unwrap() + "/" + &fs_name;
+    // List bucket objects test
+    let objects = fs.r2_client.list_bucket_objects(bucket_name);
+    println!("\t\tobjects result{:#?}", objects);
 
-    mount_options.push(MountOption::RW);
-    mount_options.push(MountOption::FSName(fs_name));
+    // // Set up the mount options
+    // let mut mount_options = Vec::new();
+    // let mount_path = mountpoint.clone().into_string().unwrap() + "/" + &bucket_name;
 
-    println!("[DEBUG] will mount at {:?}", mount_path);
+    // mount_options.push(MountOption::RW);
+    // mount_options.push(MountOption::FSName(bucket_name));
 
-    // Mount the file system
-    fuser::mount2(fs, &mount_path, &mount_options).unwrap();
+    // println!("[DEBUG] will mount at {:?}", mount_path);
+
+    // // Mount the file system
+    // fuser::mount2(fs, &mount_path, &mount_options).unwrap();
 
     Ok(())
 }
