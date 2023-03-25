@@ -54,6 +54,7 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 
 struct R2FS {
     r2_client: R2Client,
+    bucket: String,
 }
 
 impl Filesystem for R2FS {
@@ -129,8 +130,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").unwrap();
     let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").unwrap();
 
-    let fs = R2FS {
-        r2_client: R2Client::new(cf_account_id, r2_access_key_id, r2_secret_access_key)
+    let mut fs = R2FS {
+        r2_client: R2Client::new(cf_account_id, r2_access_key_id, r2_secret_access_key),
+        bucket: String::new(),
     };
 
     // Get the mountpoint argument
@@ -144,11 +146,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Mount at: {:?}", mountpoint);
 
     let list_buckets_res = fs.r2_client.list_buckets()?;
-    let bucket_name = list_buckets_res.buckets.bucket[0].name.clone();
-    println!("\t\tlist_buckets_parser result{:#?}", bucket_name);
+    fs.bucket = list_buckets_res.buckets.bucket[0].name.clone();
+    println!("\t\tlist_buckets_parser result{:#?}", fs.bucket);
 
     // List bucket objects test
-    let objects = fs.r2_client.list_bucket_objects(bucket_name);
+    let objects = fs.r2_client.list_bucket_objects(fs.bucket);
     println!("\t\tobjects result{:#?}", objects);
 
     // // Set up the mount options
