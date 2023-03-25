@@ -58,7 +58,14 @@ struct R2FS {
 }
 
 impl Filesystem for R2FS {
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &OsStr,
+        reply: ReplyEntry
+    ) {
+        println!("[lookup] calling, parent {:?}, name {:?}", parent, name);
         if parent == 1 && name.to_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
         } else {
@@ -67,6 +74,7 @@ impl Filesystem for R2FS {
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+        println!("[getattr] calling");
         match ino {
             1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
             2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
@@ -85,6 +93,7 @@ impl Filesystem for R2FS {
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
+        println!("[read] calling");
         if ino == 2 {
             reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
         } else {
@@ -100,6 +109,7 @@ impl Filesystem for R2FS {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        println!("[readdir] calling");
         if ino != 1 {
             reply.error(ENOENT);
             return;
@@ -116,13 +126,17 @@ impl Filesystem for R2FS {
 
         // Add the objects as directory entries
         for (i, obj) in objects.contents.iter().enumerate().skip(offset as usize) {
-            // need handle the directory
-            entries.push((2, FileType::RegularFile, &obj.key));
+            // TODO: need handle the directory
+            if obj.key.contains("/") {
+                continue;
+            }
+            entries.push((i + 2, FileType::RegularFile, &obj.key));
         }
+        println!("\twill add entries: {:?}", entries);
 
         for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
             // i + 1 means the index of the next entry
-            if reply.add(entry.0, (i + 1) as i64, entry.1, entry.2) {
+            if reply.add(entry.0 as u64, (i + 1) as i64, entry.1, entry.2) {
                 break;
             }
         }
@@ -169,7 +183,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // List bucket objects test
     let objects = fs.r2_client.list_bucket_objects(&fs.bucket);
-    println!("\t\tobjects result{:#?}", objects);
+    // println!("\t\tobjects result{:#?}", objects);
 
     // Set up the mount options
     let mut mount_options = Vec::new();

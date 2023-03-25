@@ -41,7 +41,7 @@ pub fn get_sig_headers(
         ""
     );
     let signature = s.sign();
-    println!("\tSig: {:#?}", signature);
+    // println!("\t[DEBUG] Sig: {:#?}", signature);
     headers.insert(reqwest::header::AUTHORIZATION, signature.parse().unwrap());
 
     headers
