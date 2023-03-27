@@ -1,6 +1,10 @@
+mod r2client;
+mod utils;
+
 use r2client::R2Client;
 use std::error::Error;
 use std::{env, process};
+use std::collections::HashMap;
 use dotenv::dotenv;
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
@@ -9,8 +13,6 @@ use fuser::{
 use libc::ENOENT;
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
-
-mod r2client;
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
 
@@ -55,6 +57,55 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 struct R2FS {
     r2_client: R2Client,
     bucket: String,
+    attributes_map: HashMap<String, FileAttr>, // r2_obj_key: FileAttr
+    ino_to_name: HashMap<u64, String>, // ino to name array
+}
+
+impl R2FS {
+    fn new(
+        cf_account_id: String,
+        r2_access_key_id: String,
+        r2_secret_access_key: String,
+    ) -> R2FS {
+        let r2_client = R2Client::new(cf_account_id, r2_access_key_id, r2_secret_access_key);
+
+        R2FS {
+            r2_client,
+            bucket: String::new(),
+            attributes_map: HashMap::new(),
+            ino_to_name: HashMap::new(),
+        }
+    }
+
+    fn init_bucket_dirs(&mut self) {
+        let list_buckets_res = self.r2_client.list_buckets();
+        println!("\t\tlist_buckets_parser result{:#?}", list_buckets_res);
+        let bucket_0 = &list_buckets_res.unwrap().buckets.bucket[0];
+        let creation_date = &bucket_0.creation_date;
+        self.bucket = bucket_0.name.clone();
+
+        let bucket_attr: FileAttr = FileAttr {
+            ino: 1,
+            size: 0,
+            blocks: 0,
+            atime: utils::parse_system_time(&creation_date),
+            mtime: utils::parse_system_time(&creation_date),
+            ctime: utils::parse_system_time(&creation_date),
+            crtime: utils::parse_system_time(&creation_date),
+            kind: FileType::Directory,
+            perm: 0o755,
+            nlink: 2,
+            uid: 501,
+            gid: 20,
+            rdev: 0,
+            flags: 0,
+            blksize: 512,
+        };
+
+        // List bucket objects test
+        // let objects = fs.r2_client.list_bucket_objects(&fs.bucket);
+        // println!("\t\tobjects result{:#?}", objects);
+    }
 }
 
 impl Filesystem for R2FS {
@@ -66,19 +117,25 @@ impl Filesystem for R2FS {
         reply: ReplyEntry
     ) {
         println!("[lookup] calling, parent {:?}, name {:?}", parent, name);
-        if parent == 1 && name.to_str() == Some("hello.txt") {
-            reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
-        } else {
-            reply.error(ENOENT);
+
+        let name_str = name.to_str().unwrap_or("");
+        if parent == 1 {
+            if let Some(file_attr) = self.attributes_map.get(name_str) {
+                reply.entry(&TTL, &file_attr, 0);
+                return;
+            }
         }
+
+        reply.error(ENOENT);
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        println!("[getattr] calling");
-        match ino {
-            1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
-            2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
-            _ => reply.error(ENOENT),
+        println!("[getattr] calling, ino {:?}", ino);
+        if let Some(name) = self.ino_to_name.get(&ino) {
+            if let Some(file_attr) = self.attributes_map.get(name) {
+                reply.attr(&TTL, file_attr);
+                return;
+            }
         }
     }
 
@@ -118,8 +175,29 @@ impl Filesystem for R2FS {
         let mut entries = Vec::new();
 
         // Add the current and parent directory entries
+        const DIR_ATTR: FileAttr = FileAttr {
+            ino: 1,
+            size: 0,
+            blocks: 0,
+            atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+            mtime: UNIX_EPOCH,
+            ctime: UNIX_EPOCH,
+            crtime: UNIX_EPOCH,
+            kind: FileType::Directory,
+            perm: 0o755,
+            nlink: 2,
+            uid: 501,
+            gid: 20,
+            rdev: 0,
+            flags: 0,
+            blksize: 512,
+        };
         entries.push((1, FileType::Directory, "."));
         entries.push((1, FileType::Directory, ".."));
+        self.attributes_map.insert(".".to_string(), DIR_ATTR);
+        self.attributes_map.insert("..".to_string(), DIR_ATTR);
+        self.ino_to_name.insert(0, ".".to_string());
+        self.ino_to_name.insert(1, "..".to_string());
 
         // Retrieve the list of objects in the bucket
         let objects = self.r2_client.list_bucket_objects(&self.bucket).unwrap();
@@ -131,6 +209,25 @@ impl Filesystem for R2FS {
                 continue;
             }
             entries.push((i + 2, FileType::RegularFile, &obj.key));
+
+            self.attributes_map.insert(obj.key.clone(), FileAttr {
+                ino: (i + 2) as u64,
+                size: obj.size as u64,
+                blocks: 0,
+                atime: utils::parse_system_time(&obj.last_modified),
+                mtime: utils::parse_system_time(&obj.last_modified),
+                ctime: utils::parse_system_time(&obj.last_modified),
+                crtime: utils::parse_system_time(&obj.last_modified),
+                kind: FileType::RegularFile,
+                perm: 0o644,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+                blksize: 512,
+            });
+            self.ino_to_name.insert((i + 2) as u64, obj.key.clone());
         }
         println!("\twill add entries: {:?}", entries);
 
@@ -157,16 +254,6 @@ fn unmount(mountpoint: &str) -> Result<(), String> {
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Starting the R2FS...");
 
-    dotenv().ok(); // load the .env file
-    let cf_account_id = env::var("ACCOUNT_ID").unwrap();
-    let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").unwrap();
-    let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").unwrap();
-
-    let mut fs = R2FS {
-        r2_client: R2Client::new(cf_account_id, r2_access_key_id, r2_secret_access_key),
-        bucket: String::new(),
-    };
-
     // Get the mountpoint argument
     let mountpoint = match env::args_os().nth(1) {
         Some(mountpoint) => mountpoint,
@@ -177,31 +264,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     println!("Mount at: {:?}", mountpoint);
 
-    let list_buckets_res = fs.r2_client.list_buckets()?;
-    fs.bucket = list_buckets_res.buckets.bucket[0].name.clone();
-    println!("\t\tlist_buckets_parser result{:#?}", fs.bucket);
-
-    // List bucket objects test
-    let objects = fs.r2_client.list_bucket_objects(&fs.bucket);
-    // println!("\t\tobjects result{:#?}", objects);
+    dotenv().ok(); // load the .env file
+    let cf_account_id = env::var("ACCOUNT_ID").unwrap();
+    let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").unwrap();
+    let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").unwrap();
+    let mut fs = R2FS::new(cf_account_id, r2_access_key_id, r2_secret_access_key);
+    fs.init_bucket_dirs();
 
     // Set up the mount options
-    let mut mount_options = Vec::new();
-    let mount_path = mountpoint.clone().into_string().unwrap() + "/" + &fs.bucket;
+    let mountpoint = mountpoint.clone().into_string().unwrap();
 
-    mount_options.push(MountOption::RW);
-    mount_options.push(MountOption::FSName(fs.bucket.clone()));
-
-    println!("[DEBUG] will mount at {:?}", mount_path);
+    let mut options = Vec::new();
+    options.push(MountOption::RW);
+    options.push(MountOption::AutoUnmount);
+    options.push(MountOption::FSName("r2fs".to_string()));
 
     // Unmount existing FUSE mount if necessary
-    if let Err(err) = unmount(&mount_path) {
-        eprintln!("Failed to unmount existing FUSE mount: {}", err);
-        return Ok(());
-    }
+    // if let Err(err) = unmount(&mountpoint) {
+    //     eprintln!("Failed to unmount existing FUSE mount: {}", err);
+    //     return Ok(());
+    // }
 
     // Mount the file system
-    match fuser::mount2(fs, &mount_path, &mount_options) {
+    match fuser::mount2(fs, &mountpoint, &options) {
         Ok(_) => println!("File system mounted successfully"),
         Err(err) => eprintln!("Failed to mount file system: {}", err),
     }
