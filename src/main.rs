@@ -3,6 +3,8 @@ mod utils;
 
 use r2client::R2Client;
 use std::error::Error;
+use std::fs::File;
+use std::io::{Seek, SeekFrom, Read};
 use std::{env, process};
 use std::collections::HashMap;
 use dotenv::dotenv;
@@ -10,7 +12,7 @@ use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
 };
-use libc::ENOENT;
+use libc::{ENOENT, EIO};
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -22,6 +24,7 @@ struct R2FS {
     r2_client: R2Client,
     bucket: String,
     ino_attribute_map: HashMap<u64, FileAttr>, // ino -> FileAttr
+    ino_local_path_map: HashMap<u64, String>, // ino -> local cache file path
     name_ino_map: HashMap<String, u64>, // filename -> ino
 }
 
@@ -37,6 +40,7 @@ impl R2FS {
             r2_client,
             bucket: String::new(),
             ino_attribute_map: HashMap::new(),
+            ino_local_path_map: HashMap::new(),
             name_ino_map: HashMap::new(),
         }
     }
@@ -108,7 +112,7 @@ impl Filesystem for R2FS {
         ino: u64,
         _fh: u64,
         offset: i64,
-        _size: u32,
+        size: u32,
         _flags: i32,
         _lock: Option<u64>,
         reply: ReplyData,
@@ -116,9 +120,44 @@ impl Filesystem for R2FS {
         println!("[read] calling, ino: {:?}, offset: {:?}", ino, offset);
 
         if let Some(file_attr) = self.ino_attribute_map.get(&ino) {
-            // reply.entry(&TTL, &file_attr, 0);
-            // reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
-            reply.data(&HELLO_TXT_CONTENT.as_bytes()[0..]);
+            let mut file_data = Vec::new();
+
+            // check if the file has been downloaded before
+            if let Some(local_path) = self.ino_local_path_map.get(&ino) {
+                // file has been downloaded, read from local file
+                let mut file = match File::open(&local_path) {
+                    Ok(file) => file,
+                    Err(_) => return reply.error(EIO),
+                };
+                if let Err(_) = file.seek(SeekFrom::Start(offset as u64)) {
+                    return reply.error(EIO);
+                }
+                if let Err(_) = file.take(size as u64).read_to_end(&mut file_data) {
+                    return reply.error(EIO);
+                }
+            } else {
+                // file hasn't been downloaded, download it and save it locally
+                // let object = self.bucket.object(&file_attr.key);
+                // let object_reader = match object.download() {
+                //     Ok(reader) => reader,
+                //     Err(_) => return reply.error(EIO),
+                // };
+                // if let Err(_) = std::io::copy(&mut object_reader, &mut file_data) {
+                //     return reply.error(EIO);
+                // }
+
+                // let local_path = format!("/tmp/r2fs/{}", file_attr.name);
+                // let mut file = match File::create(&local_path) {
+                //     Ok(file) => file,
+                //     Err(_) => return reply.error(EIO),
+                // };
+                // if let Err(_) = file.write_all(&file_data) {
+                //     return reply.error(EIO);
+                // }
+                // self.ino_local_path_map.insert(ino, local_path);
+            }
+
+            reply.data(&file_data);
             return;
         }
         reply.error(ENOENT);
