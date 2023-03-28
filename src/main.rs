@@ -16,43 +16,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
 
-const HELLO_DIR_ATTR: FileAttr = FileAttr {
-    ino: 1,
-    size: 0,
-    blocks: 0,
-    atime: UNIX_EPOCH, // 1970-01-01 00:00:00
-    mtime: UNIX_EPOCH,
-    ctime: UNIX_EPOCH,
-    crtime: UNIX_EPOCH,
-    kind: FileType::Directory,
-    perm: 0o755,
-    nlink: 2,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-    blksize: 512,
-};
-
 const HELLO_TXT_CONTENT: &str = "Hello World!\n";
-
-const HELLO_TXT_ATTR: FileAttr = FileAttr {
-    ino: 2,
-    size: 13,
-    blocks: 1,
-    atime: UNIX_EPOCH, // 1970-01-01 00:00:00
-    mtime: UNIX_EPOCH,
-    ctime: UNIX_EPOCH,
-    crtime: UNIX_EPOCH,
-    kind: FileType::RegularFile,
-    perm: 0o644,
-    nlink: 1,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-    blksize: 512,
-};
 
 struct R2FS {
     r2_client: R2Client,
@@ -149,12 +113,15 @@ impl Filesystem for R2FS {
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
-        println!("[read] calling");
-        if ino == 2 {
-            reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
-        } else {
-            reply.error(ENOENT);
+        println!("[read] calling, ino: {:?}, offset: {:?}", ino, offset);
+
+        if let Some(file_attr) = self.ino_attribute_map.get(&ino) {
+            // reply.entry(&TTL, &file_attr, 0);
+            // reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
+            reply.data(&HELLO_TXT_CONTENT.as_bytes()[0..]);
+            return;
         }
+        reply.error(ENOENT);
     }
 
     fn readdir(
