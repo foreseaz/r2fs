@@ -57,8 +57,8 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 struct R2FS {
     r2_client: R2Client,
     bucket: String,
-    attributes_map: HashMap<String, FileAttr>, // r2_obj_key: FileAttr
-    ino_to_name: HashMap<u64, String>, // ino to name array
+    ino_attribute_map: HashMap<u64, FileAttr>, // ino -> FileAttr
+    name_ino_map: HashMap<String, u64>, // filename -> ino
 }
 
 impl R2FS {
@@ -72,8 +72,8 @@ impl R2FS {
         R2FS {
             r2_client,
             bucket: String::new(),
-            attributes_map: HashMap::new(),
-            ino_to_name: HashMap::new(),
+            ino_attribute_map: HashMap::new(),
+            name_ino_map: HashMap::new(),
         }
     }
 
@@ -102,9 +102,7 @@ impl R2FS {
             blksize: 512,
         };
 
-        // List bucket objects test
-        // let objects = fs.r2_client.list_bucket_objects(&fs.bucket);
-        // println!("\t\tobjects result{:#?}", objects);
+        self.ino_attribute_map.insert(1, bucket_attr);
     }
 }
 
@@ -120,9 +118,12 @@ impl Filesystem for R2FS {
 
         let name_str = name.to_str().unwrap_or("");
         if parent == 1 {
-            if let Some(file_attr) = self.attributes_map.get(name_str) {
-                reply.entry(&TTL, &file_attr, 0);
-                return;
+            if let Some(ino) = self.name_ino_map.get(name_str) {
+                println!("\t[lookup] will retrieve fileAttr for ino {:?}", ino);
+                if let Some(file_attr) = self.ino_attribute_map.get(&ino) {
+                    reply.entry(&TTL, &file_attr, 0);
+                    return;
+                }
             }
         }
 
@@ -131,11 +132,9 @@ impl Filesystem for R2FS {
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         println!("[getattr] calling, ino {:?}", ino);
-        if let Some(name) = self.ino_to_name.get(&ino) {
-            if let Some(file_attr) = self.attributes_map.get(name) {
-                reply.attr(&TTL, file_attr);
-                return;
-            }
+        if let Some(file_attr) = self.ino_attribute_map.get(&ino) {
+            reply.attr(&TTL, file_attr);
+            return;
         }
     }
 
@@ -194,24 +193,24 @@ impl Filesystem for R2FS {
         };
         entries.push((1, FileType::Directory, "."));
         entries.push((1, FileType::Directory, ".."));
-        self.attributes_map.insert(".".to_string(), DIR_ATTR);
-        self.attributes_map.insert("..".to_string(), DIR_ATTR);
-        self.ino_to_name.insert(0, ".".to_string());
-        self.ino_to_name.insert(1, "..".to_string());
+        self.ino_attribute_map.insert(1, DIR_ATTR);
+        self.name_ino_map.insert(".".to_string(), 1);
+        self.name_ino_map.insert("..".to_string(), 1);
 
         // Retrieve the list of objects in the bucket
         let objects = self.r2_client.list_bucket_objects(&self.bucket).unwrap();
 
         // Add the objects as directory entries
-        for (i, obj) in objects.contents.iter().enumerate().skip(offset as usize) {
+        let mut ino_idx = 2; // offset "." and ".."
+        for (_, obj) in objects.contents.iter().enumerate().skip(offset as usize) {
             // TODO: need handle the directory
             if obj.key.contains("/") {
                 continue;
             }
-            entries.push((i + 2, FileType::RegularFile, &obj.key));
+            entries.push((ino_idx, FileType::RegularFile, &obj.key));
 
-            self.attributes_map.insert(obj.key.clone(), FileAttr {
-                ino: (i + 2) as u64,
+            self.ino_attribute_map.insert(ino_idx, FileAttr {
+                ino: ino_idx,
                 size: obj.size as u64,
                 blocks: 0,
                 atime: utils::parse_system_time(&obj.last_modified),
@@ -227,7 +226,9 @@ impl Filesystem for R2FS {
                 flags: 0,
                 blksize: 512,
             });
-            self.ino_to_name.insert((i + 2) as u64, obj.key.clone());
+            self.name_ino_map.insert(obj.key.clone(), ino_idx);
+
+            ino_idx = ino_idx + 1;
         }
         println!("\twill add entries: {:?}", entries);
 
