@@ -280,11 +280,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     options.push(MountOption::AutoUnmount);
     options.push(MountOption::FSName("r2fs".to_string()));
 
-    // Unmount existing FUSE mount if necessary
-    // if let Err(err) = unmount(&mountpoint) {
-    //     eprintln!("Failed to unmount existing FUSE mount: {}", err);
-    //     return Ok(());
-    // }
+    // Unmount existing FUSE mount at init
+    if let Err(err) = unmount(&mountpoint) {
+        eprintln!("Unmount at init: {}", err);
+    }
 
     // Mount the file system
     match fuser::mount2(fs, &mountpoint, &options) {
