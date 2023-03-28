@@ -1,6 +1,8 @@
 mod sig;
 pub(crate) mod parsers;
 
+use std::fs::File;
+use std::path::Path;
 use std::error::Error;
 use parsers::list_buckets_parser::ListAllMyBucketsResult;
 use parsers::list_bucket_objects_parser::ListBucketObjectsResult;
@@ -41,12 +43,25 @@ impl R2Client {
         Ok(result)
     }
 
-    pub fn list_bucket_objects(&self, bucket_name: &str) -> Result<ListBucketObjectsResult, Box<dyn Error>> {
+    pub fn list_bucket_objects(
+        &self,
+        bucket_name: &str
+    ) -> Result<ListBucketObjectsResult, Box<dyn Error>> {
         let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
-        let endpoint = format!("https://{}/{}?list-type=2", host, bucket_name); // using ListObjectV2
+        let endpoint = format!(
+            "https://{}/{}?list-type=2",
+            host,
+            bucket_name
+        ); // using ListObjectV2
         println!("[DEBUG] requesting endpoint: {:?}", endpoint);
 
-        let signed_headers = sig::get_sig_headers(&host, &endpoint, &self.r2_access, &self.r2_secret);
+        let signed_headers = sig::get_sig_headers(
+            &host,
+            &endpoint,
+            &self.r2_access,
+            &self.r2_secret
+        );
+
         let res = self.client
             .get(endpoint)
             .headers(signed_headers.to_owned())
@@ -57,5 +72,43 @@ impl R2Client {
 
         let result = parsers::list_bucket_objects_parser::parse(body);
         Ok(result)
+    }
+
+    pub fn get_object(
+        &self,
+        bucket_name: &str,
+        object_key: &str,
+        local_path: &Path,
+    ) -> Result<(), Box<dyn Error>> {
+        let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
+        let endpoint = format!(
+            "https://{}/{}/{}",
+            host,
+            bucket_name,
+            object_key
+        );
+
+        let signed_headers = sig::get_sig_headers(
+            &host,
+            &endpoint,
+            &self.r2_access,
+            &self.r2_secret,
+        );
+
+        let mut res = self
+            .client
+            .get(endpoint)
+            .headers(signed_headers.to_owned())
+            .send()?;
+
+        if !res.status().is_success() {
+            return Err("Failed to download object".into());
+        }
+
+        let mut file = File::create(local_path)?;
+
+        res.copy_to(&mut file)?;
+
+        Ok(())
     }
 }

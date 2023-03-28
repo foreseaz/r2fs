@@ -4,7 +4,8 @@ mod utils;
 use r2client::R2Client;
 use std::error::Error;
 use std::fs::File;
-use std::io::{Seek, SeekFrom, Read};
+use std::io::{Read};
+use std::path::{Path};
 use std::{env, process};
 use std::collections::HashMap;
 use dotenv::dotenv;
@@ -15,16 +16,13 @@ use fuser::{
 use libc::{ENOENT, EIO};
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
-
 const TTL: Duration = Duration::from_secs(1); // 1 second
-
-const HELLO_TXT_CONTENT: &str = "Hello World!\n";
 
 struct R2FS {
     r2_client: R2Client,
     bucket: String,
+    local_dir: String,
     ino_attribute_map: HashMap<u64, FileAttr>, // ino -> FileAttr
-    ino_local_path_map: HashMap<u64, String>, // ino -> local cache file path
     name_ino_map: HashMap<String, u64>, // filename -> ino
 }
 
@@ -39,8 +37,8 @@ impl R2FS {
         R2FS {
             r2_client,
             bucket: String::new(),
+            local_dir: "/tmp/r2fs_local/".to_string(),
             ino_attribute_map: HashMap::new(),
-            ino_local_path_map: HashMap::new(),
             name_ino_map: HashMap::new(),
         }
     }
@@ -119,48 +117,69 @@ impl Filesystem for R2FS {
     ) {
         println!("[read] calling, ino: {:?}, offset: {:?}", ino, offset);
 
-        if let Some(file_attr) = self.ino_attribute_map.get(&ino) {
-            let mut file_data = Vec::new();
-
-            // check if the file has been downloaded before
-            if let Some(local_path) = self.ino_local_path_map.get(&ino) {
-                // file has been downloaded, read from local file
-                let mut file = match File::open(&local_path) {
-                    Ok(file) => file,
-                    Err(_) => return reply.error(EIO),
-                };
-                if let Err(_) = file.seek(SeekFrom::Start(offset as u64)) {
-                    return reply.error(EIO);
-                }
-                if let Err(_) = file.take(size as u64).read_to_end(&mut file_data) {
-                    return reply.error(EIO);
-                }
-            } else {
-                // file hasn't been downloaded, download it and save it locally
-                // let object = self.bucket.object(&file_attr.key);
-                // let object_reader = match object.download() {
-                //     Ok(reader) => reader,
-                //     Err(_) => return reply.error(EIO),
-                // };
-                // if let Err(_) = std::io::copy(&mut object_reader, &mut file_data) {
-                //     return reply.error(EIO);
-                // }
-
-                // let local_path = format!("/tmp/r2fs/{}", file_attr.name);
-                // let mut file = match File::create(&local_path) {
-                //     Ok(file) => file,
-                //     Err(_) => return reply.error(EIO),
-                // };
-                // if let Err(_) = file.write_all(&file_data) {
-                //     return reply.error(EIO);
-                // }
-                // self.ino_local_path_map.insert(ino, local_path);
+        // Get the file name (object key) from the name-inode map
+        let object_key = match self.name_ino_map.iter().find(|(_, &i)| i == ino) {
+            Some((name, _)) => name,
+            None => {
+                reply.error(ENOENT);
+                return;
             }
+        };
 
-            reply.data(&file_data);
+        // Construct the local file path
+        let local_file_path_str = self.local_dir.clone() + object_key;
+        let local_file_path = Path::new(&local_file_path_str);
+
+        // Check if the file exists locally
+        if !local_file_path.exists() {
+            println!("\t[read] file does not exist locally: {:?}", local_file_path);
+
+            // Download the file from R2 and save it locally
+            match self.r2_client.get_object(
+                &self.bucket,
+                object_key,
+                &local_file_path
+            ) {
+                Ok(_) => println!("\t[read] file downloaded successfully: {:?}", local_file_path),
+                Err(err) => {
+                    eprintln!("Failed to download file from R2: {}", err);
+                    reply.error(EIO);
+                    return;
+                }
+            };
+        }
+
+        // Open the local file and read its contents
+        let mut file = match File::open(&local_file_path) {
+            Ok(file) => file,
+            Err(e) => {
+                eprintln!("Failed to open file: {}", e);
+                reply.error(EIO);
+                return;
+            }
+        };
+
+        let mut buf = Vec::new();
+        if let Err(e) = file.read_to_end(&mut buf) {
+            eprintln!("Failed to read file: {}", e);
+            reply.error(EIO);
             return;
         }
-        reply.error(ENOENT);
+
+        println!("\t[read] file opened successfully: {:?}", local_file_path);
+
+        // Calculate the range of bytes to return based on the offset and size
+        let start = offset as usize;
+        let end = (offset + size as i64) as usize;
+        let end = std::cmp::min(end, buf.len());
+        if start >= buf.len() {
+            reply.data(&[]);
+        } else {
+            let range = start..end;
+            println!("\t[read] range: {:?}", range);
+            // Return the requested bytes
+            reply.data(&buf[range]);
+        }
     }
 
     fn readdir(
