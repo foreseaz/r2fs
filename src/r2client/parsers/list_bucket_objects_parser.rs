@@ -19,7 +19,8 @@ pub struct ListBucketObjectsResult {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "Contents")]
-pub struct Content { // single object, all are files
+pub struct Content {
+    // single object, all are files
     #[serde(rename = "Key")]
     pub key: String,
     #[serde(rename = "Size")]

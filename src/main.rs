@@ -1,21 +1,21 @@
 mod r2client;
 mod utils;
 
-use r2client::R2Client;
-use std::error::Error;
-use std::fs::File;
-use std::io::{Read};
-use std::path::{Path};
-use std::{env, process};
-use std::collections::HashMap;
 use dotenv::dotenv;
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
 };
-use libc::{ENOENT, EIO};
+use libc::{EIO, ENOENT};
+use r2client::R2Client;
+use std::collections::HashMap;
+use std::error::Error;
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
+use std::{env, process};
 const TTL: Duration = Duration::from_secs(1); // 1 second
 
 struct R2FS {
@@ -23,15 +23,11 @@ struct R2FS {
     bucket: String,
     local_dir: String,
     ino_attribute_map: HashMap<u64, FileAttr>, // ino -> FileAttr
-    name_ino_map: HashMap<String, u64>, // filename -> ino
+    name_ino_map: HashMap<String, u64>,        // filename -> ino
 }
 
 impl R2FS {
-    fn new(
-        cf_account_id: String,
-        r2_access_key_id: String,
-        r2_secret_access_key: String,
-    ) -> R2FS {
+    fn new(cf_account_id: String, r2_access_key_id: String, r2_secret_access_key: String) -> R2FS {
         let r2_client = R2Client::new(cf_account_id, r2_access_key_id, r2_secret_access_key);
 
         R2FS {
@@ -73,13 +69,7 @@ impl R2FS {
 }
 
 impl Filesystem for R2FS {
-    fn lookup(
-        &mut self,
-        _req: &Request,
-        parent: u64,
-        name: &OsStr,
-        reply: ReplyEntry
-    ) {
+    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         println!("[lookup] calling, parent {:?}, name {:?}", parent, name);
 
         let name_str = name.to_str().unwrap_or("");
@@ -132,15 +122,20 @@ impl Filesystem for R2FS {
 
         // Check if the file exists locally
         if !local_file_path.exists() {
-            println!("\t[read] file does not exist locally: {:?}", local_file_path);
+            println!(
+                "\t[read] file does not exist locally: {:?}",
+                local_file_path
+            );
 
             // Download the file from R2 and save it locally
-            match self.r2_client.get_object(
-                &self.bucket,
-                object_key,
-                &local_file_path
-            ) {
-                Ok(_) => println!("\t[read] file downloaded successfully: {:?}", local_file_path),
+            match self
+                .r2_client
+                .get_object(&self.bucket, object_key, &local_file_path)
+            {
+                Ok(_) => println!(
+                    "\t[read] file downloaded successfully: {:?}",
+                    local_file_path
+                ),
                 Err(err) => {
                     eprintln!("Failed to download file from R2: {}", err);
                     reply.error(EIO);
@@ -234,23 +229,26 @@ impl Filesystem for R2FS {
             }
             entries.push((ino_idx, FileType::RegularFile, &obj.key));
 
-            self.ino_attribute_map.insert(ino_idx, FileAttr {
-                ino: ino_idx,
-                size: obj.size as u64,
-                blocks: 0,
-                atime: utils::parse_system_time(&obj.last_modified),
-                mtime: utils::parse_system_time(&obj.last_modified),
-                ctime: utils::parse_system_time(&obj.last_modified),
-                crtime: utils::parse_system_time(&obj.last_modified),
-                kind: FileType::RegularFile,
-                perm: 0o644,
-                nlink: 1,
-                uid: 501,
-                gid: 20,
-                rdev: 0,
-                flags: 0,
-                blksize: 512,
-            });
+            self.ino_attribute_map.insert(
+                ino_idx,
+                FileAttr {
+                    ino: ino_idx,
+                    size: obj.size as u64,
+                    blocks: 0,
+                    atime: utils::parse_system_time(&obj.last_modified),
+                    mtime: utils::parse_system_time(&obj.last_modified),
+                    ctime: utils::parse_system_time(&obj.last_modified),
+                    crtime: utils::parse_system_time(&obj.last_modified),
+                    kind: FileType::RegularFile,
+                    perm: 0o644,
+                    nlink: 1,
+                    uid: 501,
+                    gid: 20,
+                    rdev: 0,
+                    flags: 0,
+                    blksize: 512,
+                },
+            );
             self.name_ino_map.insert(obj.key.clone(), ino_idx);
 
             ino_idx = ino_idx + 1;
@@ -273,7 +271,11 @@ fn unmount(mountpoint: &str) -> Result<(), String> {
     if result == 0 {
         Ok(())
     } else {
-        Err(format!("Failed to unmount mountpoint {}: {}", mountpoint, std::io::Error::last_os_error()))
+        Err(format!(
+            "Failed to unmount mountpoint {}: {}",
+            mountpoint,
+            std::io::Error::last_os_error()
+        ))
     }
 }
 

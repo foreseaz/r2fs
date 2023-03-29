@@ -1,4 +1,4 @@
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 fn sha256_string(input: String) -> String {
     let mut hasher = Sha256::new();
@@ -30,15 +30,7 @@ pub fn get_sig_headers(
     headers.insert("x-amz-content-sha256", hashed_payload.parse().unwrap());
 
     let s = aws_sign_v4::AwsSign::new(
-        "GET",
-        &url,
-        &datetime,
-        &headers,
-        "auto",
-        &r2_access,
-        &r2_secret,
-        "s3",
-        ""
+        "GET", &url, &datetime, &headers, "auto", &r2_access, &r2_secret, "s3", "",
     );
     let signature = s.sign();
     // println!("\t[DEBUG] Sig: {:#?}", signature);

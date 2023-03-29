@@ -1,11 +1,11 @@
-mod sig;
 pub(crate) mod parsers;
+mod sig;
 
+use parsers::list_bucket_objects_parser::ListBucketObjectsResult;
+use parsers::list_buckets_parser::ListAllMyBucketsResult;
+use std::error::Error;
 use std::fs::File;
 use std::path::Path;
-use std::error::Error;
-use parsers::list_buckets_parser::ListAllMyBucketsResult;
-use parsers::list_bucket_objects_parser::ListBucketObjectsResult;
 
 pub struct R2Client {
     cf_account_id: String,
@@ -15,7 +15,11 @@ pub struct R2Client {
 }
 
 impl R2Client {
-    pub fn new(cf_account_id: String, r2_access_key_id: String, r2_secret_access_key: String) -> Self {
+    pub fn new(
+        cf_account_id: String,
+        r2_access_key_id: String,
+        r2_secret_access_key: String,
+    ) -> Self {
         let client = reqwest::blocking::Client::new();
         Self {
             cf_account_id,
@@ -30,8 +34,10 @@ impl R2Client {
         let endpoint = format!("https://{}", host);
         println!("[DEBUG] requesting endpoint: {:?}", endpoint);
 
-        let signed_headers = sig::get_sig_headers(&host, &endpoint, &self.r2_access, &self.r2_secret);
-        let res = self.client
+        let signed_headers =
+            sig::get_sig_headers(&host, &endpoint, &self.r2_access, &self.r2_secret);
+        let res = self
+            .client
             .get(endpoint)
             .headers(signed_headers.to_owned())
             .body("")
@@ -45,24 +51,17 @@ impl R2Client {
 
     pub fn list_bucket_objects(
         &self,
-        bucket_name: &str
+        bucket_name: &str,
     ) -> Result<ListBucketObjectsResult, Box<dyn Error>> {
         let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
-        let endpoint = format!(
-            "https://{}/{}?list-type=2",
-            host,
-            bucket_name
-        ); // using ListObjectV2
+        let endpoint = format!("https://{}/{}?list-type=2", host, bucket_name); // using ListObjectV2
         println!("[DEBUG] requesting endpoint: {:?}", endpoint);
 
-        let signed_headers = sig::get_sig_headers(
-            &host,
-            &endpoint,
-            &self.r2_access,
-            &self.r2_secret
-        );
+        let signed_headers =
+            sig::get_sig_headers(&host, &endpoint, &self.r2_access, &self.r2_secret);
 
-        let res = self.client
+        let res = self
+            .client
             .get(endpoint)
             .headers(signed_headers.to_owned())
             .body("")
@@ -81,19 +80,10 @@ impl R2Client {
         local_path: &Path,
     ) -> Result<(), Box<dyn Error>> {
         let host = format!("{}.r2.cloudflarestorage.com", self.cf_account_id);
-        let endpoint = format!(
-            "https://{}/{}/{}",
-            host,
-            bucket_name,
-            object_key
-        );
+        let endpoint = format!("https://{}/{}/{}", host, bucket_name, object_key);
 
-        let signed_headers = sig::get_sig_headers(
-            &host,
-            &endpoint,
-            &self.r2_access,
-            &self.r2_secret,
-        );
+        let signed_headers =
+            sig::get_sig_headers(&host, &endpoint, &self.r2_access, &self.r2_secret);
 
         let mut res = self
             .client

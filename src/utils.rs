@@ -6,5 +6,5 @@ pub fn parse_system_time(input: &str) -> SystemTime {
         .unwrap()
         .with_timezone(&Utc);
     let system_time: SystemTime = dt.into();
-    return system_time
+    return system_time;
 }
