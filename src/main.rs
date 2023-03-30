@@ -16,6 +16,10 @@ use std::io::Read;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 use std::{env, process};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use ctrlc;
+
 const TTL: Duration = Duration::from_secs(1); // 1 second
 
 struct R2FS {
@@ -137,7 +141,7 @@ impl Filesystem for R2FS {
                     local_file_path
                 ),
                 Err(err) => {
-                    eprintln!("Failed to download file from R2: {}", err);
+                    eprintln!("Failed to download file from R2 key: {:?} err {}", object_key, err);
                     reply.error(EIO);
                     return;
                 }
@@ -317,6 +321,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(_) => println!("File system mounted successfully"),
         Err(err) => eprintln!("Failed to mount file system: {}", err),
     }
+
+    // Set up a flag to track whether a shutdown signal has been received
+    let shutdown_requested = Arc::new(AtomicBool::new(false));
+    let shutdown_requested_clone = shutdown_requested.clone();
+
+    // Set up a handler for the ctrl-c signal
+    ctrlc::set_handler(move || {
+        shutdown_requested_clone.store(true, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
+
+    // Wait for the shutdown signal
+    while !shutdown_requested.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // Unmount the file system
+    if let Err(err) = unmount(&mountpoint) {
+        eprintln!("Unmount error: {}", err);
+    }    println!("File system unmounted");
+
+    println!("File system unmounted successfully by ctrl-c");
 
     Ok(())
 }
